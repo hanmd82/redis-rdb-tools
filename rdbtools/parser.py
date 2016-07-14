@@ -14,6 +14,8 @@ REDIS_RDB_14BITLEN = 1
 REDIS_RDB_32BITLEN = 2
 REDIS_RDB_ENCVAL = 3
 
+REDIS_RDB_OPCODE_AUX = 250
+REDIS_RDB_OPCODE_RESIZEDB = 251
 REDIS_RDB_OPCODE_EXPIRETIME_MS = 252
 REDIS_RDB_OPCODE_EXPIRETIME = 253
 REDIS_RDB_OPCODE_SELECTDB = 254
@@ -29,6 +31,7 @@ REDIS_RDB_TYPE_LIST_ZIPLIST = 10
 REDIS_RDB_TYPE_SET_INTSET = 11
 REDIS_RDB_TYPE_ZSET_ZIPLIST = 12
 REDIS_RDB_TYPE_HASH_ZIPLIST = 13
+REDIS_RDB_TYPE_LIST_QUICKLIST = 14
 
 REDIS_RDB_ENC_INT8 = 0
 REDIS_RDB_ENC_INT16 = 1
@@ -37,7 +40,7 @@ REDIS_RDB_ENC_LZF = 3
 
 DATA_TYPE_MAPPING = {
     0 : "string", 1 : "list", 2 : "set", 3 : "sortedset", 4 : "hash", 
-    9 : "hash", 10 : "list", 11 : "set", 12 : "sortedset", 13 : "hash"}
+    9 : "hash", 10 : "list", 11 : "set", 12 : "sortedset", 13 : "hash", 14: "list" }
 
 class RdbCallback:
     """
@@ -300,6 +303,16 @@ class RdbParser :
                     self._callback.end_rdb()
                     break
 
+                if data_type == REDIS_RDB_OPCODE_AUX:
+                   self.read_string(f)
+                   self.read_string(f)
+                   continue
+
+                if data_type == REDIS_RDB_OPCODE_RESIZEDB:
+                   self.read_length(f)
+                   self.read_length(f)
+                   continue
+
                 if self.matches_filter(db_number) :
                     self._key = self.read_string(f)
                     if self.matches_filter(db_number, self._key, data_type):
@@ -407,6 +420,8 @@ class RdbParser :
             self.read_zset_from_ziplist(f)
         elif enc_type == REDIS_RDB_TYPE_HASH_ZIPLIST :
             self.read_hash_from_ziplist(f)
+        elif enc_type == REDIS_RDB_TYPE_LIST_QUICKLIST :
+            self.read_quicklist(f)
         else :
             raise Exception('read_object', 'Invalid object type %d for key %s' % (enc_type, self._key))
 
@@ -602,13 +617,24 @@ class RdbParser :
         else:
             return None
 
+    def read_quicklist(self, f) :
+        num_entries = self.read_length(f)
+
+        self._callback.start_list(self._key, num_entries, self._expiry, info={'encoding':'quicklist', 'sizeof_value': num_entries})
+
+        for i in range(0, num_entries):
+            item = self.read_string(f)
+            self._callback.rpush(self._key, item)
+
+        self._callback.end_list(self._key)
+
     def verify_magic_string(self, magic_string) :
         if magic_string != 'REDIS' :
             raise Exception('verify_magic_string', 'Invalid File Format')
 
     def verify_version(self, version_str) :
         version = int(version_str)
-        if version < 1 or version > 6 : 
+        if version < 1 or version > 7:
             raise Exception('verify_version', 'Invalid RDB version number %d' % version)
 
     def init_filter(self, filters):
