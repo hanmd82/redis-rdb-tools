@@ -472,6 +472,8 @@ class RdbParser :
             skip_strings = 1
         elif enc_type == REDIS_RDB_TYPE_HASH_ZIPLIST :
             skip_strings = 1
+        elif enc_type == REDIS_RDB_TYPE_LIST_QUICKLIST :
+            skip_strings = self.read_length(f)
         else :
             raise Exception('read_object', 'Invalid object type %d for key %s' % (enc_type, self._key))
         for x in xrange(0, skip_strings):
